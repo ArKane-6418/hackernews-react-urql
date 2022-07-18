@@ -1,5 +1,5 @@
-import { React, useCallback, useMemo } from 'react'
-import { useQuery } from 'urql'
+import React from 'react'
+import { useQuery, useSubscription } from 'urql'
 import gql from 'graphql-tag'
 import Link from './Link'
 
@@ -14,17 +14,43 @@ import Link from './Link'
 - first defines the limit of how many elements you want to load
 - orderBy defines how the returned list will be sorted
 */
-const FEED_QUERY = gql`
+
+export const FEED_QUERY = gql`
     query FeedQuery($first: Int, $skip: Int, $orderBy: LinkOrderByInput) {
         feed(first: $first, skip: $skip, orderBy: $orderBy) {
-            count
             links {
                 id
-                createdAt
                 url
                 description
                 postedBy {
-                    id 
+                    id
+                    name
+                }
+                votes {
+                    id
+                    user {
+                        id
+                    }
+                }
+                createdAt
+            }
+            count
+        }
+    }
+`
+
+// Subscription to ask for updated votes field
+const NEW_VOTES_SUBSCRIPTION = gql`
+    subscription {
+        newVote {
+            id
+            link {
+                id
+                url
+                description
+                createdAt
+                postedBy {
+                    id
                     name
                 }
                 votes {
@@ -34,23 +60,49 @@ const FEED_QUERY = gql`
                     }
                 }
             }
+            user {
+                id
+            }
+        }
+    }
+`;
+
+// Subscription to automatically display new links as they're posted by other users
+const NEW_LINKS_SUBSCRIPTION = gql`
+    subscription {
+        newLink {
+            id
+            url
+            description
+            postedBy {
+                id
+                name
+            }
+            votes {
+                id
+                user {
+                    id
+                }
+            }
+            createdAt
         }
     }
 `
-
 const LinkList = props => {
     const isNewPage = props.location.pathname.includes('new')
     const page = parseInt(props.match.params.page, 10)
 
-    const variables = useMemo(() => ({
+    const variables = React.useMemo(() => ({
         skip: isNewPage ? (page - 1) * 10 : 0,
         first: isNewPage ? 10 : 100,
         orderBy: isNewPage ? 'createdAt_DESC' : null,
     }), [isNewPage, page])
-
-    const pageIndex = isNewPage ? (page - 1) * 10 : 0
+    
     const [result] = useQuery({ query: FEED_QUERY, variables })
     const { data, fetching, error } = result
+
+    useSubscription({ query: NEW_VOTES_SUBSCRIPTION })
+    useSubscription({ query: NEW_LINKS_SUBSCRIPTION })
 
     const linksToRender = React.useMemo(() => {
         if (!data || !data.feed) {
@@ -65,14 +117,14 @@ const LinkList = props => {
         }
       }, [data, isNewPage]);
       
-    const nextPage = useCallback(() => {
+    const nextPage = React.useCallback(() => {
         // Go to the next page if the current page isn't the last
         if (page <= data.feed.count / 10) {
             props.history.push(`/new/${page+1}`)
         }
-    }, [props.history, data.feed.count, page])
+    }, [props.history, data, page])
 
-    const previousPage = useCallback(() => {
+    const previousPage = React.useCallback(() => {
         if (page > 1) {
             props.history.push(`/new/${page-1}`)
         }
@@ -80,6 +132,8 @@ const LinkList = props => {
 
     if (fetching) return <div>Fetching</div>
     if (error) return <div>Error</div>
+
+    const pageIndex = isNewPage ? (page - 1) * 10 : 0
 
     return (
         <React.Fragment>
@@ -99,5 +153,4 @@ const LinkList = props => {
         </React.Fragment>
     )
 }
-
 export default LinkList
